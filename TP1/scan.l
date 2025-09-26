@@ -112,7 +112,10 @@ ERRO_VAR      ({D}+({L}|{UNDERLINE}|\$))({L}|{D}|{UNDERLINE})*|({L}|{UNDERLINE}|
 {FLOAT}                 { lexema = yytext; return _FLOAT; }
 
 .       { lexema = yytext; return *yytext; 
-          /* Essa deve ser a última regra. Dessa forma qualquer caractere isolado será retornado pelo seu código ascii. */ }
+
+/* Essa deve ser a última regra. Dessa forma qualquer caractere isolado será retornado pelo seu código ascii. */ 
+}
+
 
 %%
 
