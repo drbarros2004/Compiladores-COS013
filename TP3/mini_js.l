@@ -1,5 +1,6 @@
 %{
 int token( int tk );
+string lexema;
 %}
 
 D  	        [0-9]
@@ -15,12 +16,6 @@ STRING      (\"([^\n\r\"\\]*|\\.|\"\")*\")|(\'([^\n\r\'\\]*|\\.|\'\')*\')
 "\t"       { coluna += 4; }
 " "        { coluna++; }
 "\n"	   { linha++; coluna = 1; }
-
-{DOUBLE}   { return token( CDOUBLE ); }
-{INT}	   { return token( CINT ); } 
-{STRING}   { return token( CSTRING ); }
-
-
 
 "&&"	   { return token( AND ); }
 "||"	   { return token( OR ); }
@@ -39,7 +34,12 @@ STRING      (\"([^\n\r\"\\]*|\\.|\"\")*\")|(\'([^\n\r\'\\]*|\\.|\'\')*\')
 "else"     { return token( ELSE ); }
 "print"    { return token( PRINT ); }
 "for"      { return token( FOR ); }
-"while"     { return token( WHILE ); }
+"while"    { return token( WHILE ); }
+
+{STRING}   {return token ( CSTRING );}
+
+{DOUBLE}   { return token( CDOUBLE ); }
+{INT}	   { return token( CINT ); } 
 
 {ID}       { return token( ID ); }
 
