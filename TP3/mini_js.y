@@ -6,13 +6,13 @@
 
 using namespace std;
 
-// Variáveis globais para rastrear a posição no arquivo fonte.
+// Variáveis globais para rastrear a posição no arquivo fonte
 int linha = 1,
     coluna = 0;
 
-// Estrutura para armazenar os atributos de cada símbolo da gramática.
+// Estrutura para armazenar os atributos de cada símbolo da gramática
 struct Atributos {
-  vector<string> c; // Vetor que acumula o código intermediário gerado.
+  vector<string> c; // Vetor que acumula o código intermediário gerado
   int linha = 0;
   int coluna = 0;
 
@@ -26,17 +26,17 @@ struct Atributos {
 // Enum para os tipos de declaração de variável.
 enum TipoDecl { Let = 1, Const, Var };
 
-// Estrutura para armazenar informações sobre cada símbolo na Tabela de Símbolos.
+// Estrutura para armazenar informações sobre cada símbolo na Tabela de Símbolos
 struct Simbolo {
   TipoDecl tipo;
   int linha;
   int coluna;
 };
 
-// Tabela de Símbolos global.
+// Tabela de Símbolos 
 map< string, Simbolo > ts;
 
-// Protótipos de funções.
+// Protótipos de funções
 vector<string> declara_var( TipoDecl tipo, string nome, int linha, int coluna );
 void checa_simbolo( string nome, bool modificavel );
 
@@ -65,7 +65,7 @@ vector<string> resolve_enderecos( vector<string> entrada ) {
   return saida;
 }
 
-// Gera um rótulo (label) único para uso em desvios (jumps).
+// Gera um label para uso em jumps
 string gera_label( string prefixo ) {
   static int n = 0;
   return prefixo + "_" + to_string( ++n ) + ":";
@@ -97,17 +97,21 @@ const string JUMP = "#";
 const string JUMP_TRUE = "?";
 const string POP = "^";
 
-// string JUMP_FALSE (string lbl) {
-//   return "!" + lbl + JUMP_TRUE;
-// }
-
 vector<string> JUMP_FALSE (string lbl) {
-  // Retorna um vetor com os 3 tokens que a máquina de pilha espera
   return vector<string>{"!", lbl, "?"};
 }
 
 vector<string> GET (vector<string> var) {
   return var + "@";
+}
+
+vector<string> GET_LVALUE_VAL( Atributos lval ) {
+  // O tamanho do vetor de código indica se é um ID simples ou um acesso composto (propriedade de objeto).
+  if (lval.c.size() > 1) {
+    return lval.c + "[@]";
+  } else {
+    return GET(lval.c); 
+  }
 }
 
 %}
@@ -119,7 +123,7 @@ vector<string> GET (vector<string> var) {
 %token MAIS_IGUAL MAIS_MAIS
 
 // Definição de precedência e associatividade dos operadores
-%right '=' MAIS_IGUAL // Atribuições são associativas à direita
+%right '=' MAIS_IGUAL 
 %left OR
 %left AND
 %nonassoc '<' '>' IGUAL MA_IG ME_IG DIF
@@ -127,7 +131,7 @@ vector<string> GET (vector<string> var) {
 %left '*' '/' '%'
 %left '['
 %left '.'
-%right MAIS_MAIS // Operadores unários como ++ costumam ter alta precedência
+%right MAIS_MAIS 
 
 %%
 
@@ -151,6 +155,7 @@ CMD : DECL ';'
       { $$.c = $1.c + "^"; }
     | '{' CMDs '}'            // Bloco de comandos
       { $$.c = $2.c; }
+    | ';' { $$.clear(); }
     ;
 
 CMD_FOR : FOR '(' SF ';' E ';' EF ')' CMD
@@ -187,7 +192,7 @@ DECL : CMD_LET
      | CMD_CONST
      ;
 
-// Inicialização do FOR: pode ser uma declaração ou uma expressão
+// Inicialização do FOR: declaração ou uma expressão
 SF : EF
    | DECL
    ;
@@ -259,120 +264,48 @@ CMD_IF : IF '(' E ')' CMD
           }
         ;
 
-        
-/* // LVALUE: Define o que pode estar à esquerda de uma atribuição.
-// OBS.: juntei LVALUE e LVALUE PROP apenas nisso aqui. Acontece um tratamento em ATRIB
-// para garantir que isso não aconteça. */
-LVALUE : ID
-      | LVALUE '[' E ']' { $$.c = GET($1.c) + $3.c; } // Usa GET
-      | LVALUE '.' ID    { $$.c = GET($1.c) + $3.c; } // Usa GET 
-
-
-
-
-
-//// --- teste
-
-// LVALUE agora é a união de um LVALUE de variável ou de propriedade.
-/* LVALUE : LVALUE_VAR
+// LVALUE: L-value de variável ou de propriedade.
+LVALUE : LVALUE_VAR
        | LVALUE_PROP
-       ; */
+       ;
 
-// VAR_LVALUE é apenas um ID simples.
-/* LVALUE_VAR : ID ; */
-/* 
-// PROP_LVALUE é um acesso a uma propriedade.
-// Esta é a regra que gera o código para buscar o objeto/array na pilha.
-LVALUE_PROP : LVALUE '[' E ']' { $$.c = GET($1.c) + $3.c; }
-            | LVALUE '.' ID    { $$.c = GET($1.c) + $3.c; }
+// LVALUE_VAR: ID simples
+LVALUE_VAR : ID ;
+
+// LVALUE_PROP: L-value de propriedade. Gera código para buscar o objeto/array.
+LVALUE_PROP : LVALUE '[' E ']' { $$.c = GET_LVALUE_VAL($1) + $3.c; }
+            | LVALUE '.' ID    { $$.c = GET_LVALUE_VAL($1) + $3.c; }
             ;
-            
-// LVALUE: Define o que pode estar à esquerda de uma atribuição.
-LVALUE : ID
-      | LVALUE '[' E ']' { $$.c = GET($1.c) + $3.c; }
-      | LVALUE '.' ID    { $$.c = GET($1.c) + $3.c; }
-      ;
 
-// ATRIB: Agora temos regras separadas e sem ambiguidade.
+// ATRIB: Regras de atribuição
 ATRIB : LVALUE_VAR '=' E
         {
           checa_simbolo( $1.c[0], true );
-          $$.c = $1.c + $3.c + "="; // Sempre usa "=" para variáveis
+          $$.c = $1.c + $3.c + "=";     // "=" para variáveis
         }
       | LVALUE_PROP '=' E
         {
           checa_simbolo( $1.c[0], true );
-          $$.c = $1.c + $3.c + "[=]"; // Sempre usa "[=]" para propriedades
+          $$.c = $1.c + $3.c + "[=]";   // "[=]" para propriedades
         }
       | LVALUE_VAR MAIS_IGUAL E
         {
           checa_simbolo( $1.c[0], true );
           $$.c = $1.c + GET($1.c) + $3.c + "+" + "=";
         }
-      | LVALUEPROP MAIS_IGUAL E
+      | LVALUE_PROP MAIS_IGUAL E
         {
           checa_simbolo( $1.c[0], true );
-          $$.c = $1.c + $1.c + "[@]" + $3.c + "+" + "[=]"; // Note que aqui usamos $1.c duas vezes
-        }
-      ; */
-
-// F: Fatores.
-F : LVALUE
-    {
-      checa_simbolo( $1.c[0], false );
-      // Se for um acesso a propriedade, precisa do getProp. Se for só ID, precisa do get.
-      // O LVALUE já gera 'obj @ prop', então para ler o valor, adicionamos '[@]'
-      if ($1.c.size() > 1)
-        $$.c = $1.c + "[@]";
-      else // Se for só um ID
-        $$.c = GET($1.c);
-    }
-  | '{' '}'     { $$.c = vector<string>{"{}"}; }
-  | '[' ']'     { $$.c = vector<string>{"[]"}; }
-  | CDOUBLE
-  | CINT
-  | CSTRING
-  | LVALUE MAIS_MAIS
-    {
-       // Esta regra pode precisar de uma lógica similar à de ATRIB para ++
-       // mas vamos focar no problema principal primeiro.
-       checa_simbolo($1.c[0], true);
-       $$.c = GET($1.c) + $1.c + GET($1.c) + "1" + "+" + "=" + "^" ;
-    }
-  | '(' E ')'   { $$.c = $2.c; }
-  | '-' F       { $$.c = vector<string>{"0"} + $2.c + "-"; }
-  ;
-
-
-
-// ATRIB: Operações de atribuição.
-ATRIB : LVALUE '=' E
-        {
-          checa_simbolo( $1.c[0], true );
-          // Se o código do LVALUE tem mais de 1 parte (ex: 'a', '.','b'), é uma atribuição de propriedade.
-          if ($1.c.size() > 1)
-             $$.c = $1.c + $3.c + "[=]";
-          else
-             $$.c = $1.c + $3.c + "=";
-        }
-      | LVALUE MAIS_IGUAL E
-        {
-          checa_simbolo( $1.c[0], true );
-          if ($1.c.size() > 1) 
-            $$.c = $1.c + $1.c + "[@]" + $3.c + "+" + "[=]";
-          else 
-            $$.c = $1.c + GET($1.c) + $3.c + "+" + "=";
+          $$.c = $1.c + $1.c + "[@]" + $3.c + "+" + "[=]";
         }
       ;
 
-
-
-// E: Expressões. Uma expressão pode ser uma atribuição ou uma operação binária.
+// E: Expressões. Pode ser uma atribuição ou uma operação binária/fator.
 E : ATRIB
   | E_BIN
   ;
 
-// E_BIN: Regras para todas as operações binárias (aritméticas, lógicas, etc.).
+// E_BIN: Regras para todas as operações binárias.
 E_BIN : E_BIN '<' E_BIN     { $$.c = $1.c + $3.c + $2.c; }
       | E_BIN '>' E_BIN     { $$.c = $1.c + $3.c + $2.c; }
       | E_BIN IGUAL E_BIN   { $$.c = $1.c + $3.c + $2.c; }
@@ -389,12 +322,8 @@ E_BIN : E_BIN '<' E_BIN     { $$.c = $1.c + $3.c + $2.c; }
       | F
       ;
 
-// F: Fatores. Elementos de maior precedência em uma expressão.
-F : ID
-    {
-      checa_simbolo( $1.c[0], false ); // Checa se a variável existe para leitura.
-      $$.c = GET($1.c);
-    }
+// F: Fatores. A base de uma expressão.
+F : LVALUE      { $$.c = GET_LVALUE_VAL($1); }
   | '{' '}'     { $$.c = vector<string>{"{}"}; }
   | '[' ']'     { $$.c = vector<string>{"[]"}; }
   | CDOUBLE
@@ -402,14 +331,13 @@ F : ID
   | CSTRING
   | LVALUE MAIS_MAIS
     {
-      checa_simbolo($1.c[0], true); // Checa se pode modificar.
-      // Gera código para post-incremento (retorna valor antigo, depois incrementa)
+      checa_simbolo($1.c[0], true);
       $$.c = GET($1.c) + $1.c + GET($1.c) + "1" + "+" + "=" + "^" ;
     }
   | '(' E ')'   { $$.c = $2.c; }
   | '-' F       { $$.c = vector<string>{"0"} + $2.c + "-"; }
   ;
-
+  
 %%
 
 #include "lex.yy.c"
