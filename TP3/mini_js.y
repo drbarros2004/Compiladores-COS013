@@ -141,7 +141,7 @@ S : CMDs { print( resolve_enderecos( $1.c + "." ) ); }
 
 // Regra para uma lista de comandos
 CMDs : CMDs CMD  { $$.c = $1.c + $2.c; }
-     |           { $$.clear(); }
+     | CMD       { $$.c = $1.c; }      // Isso faz com que não possa ter bloco totalmente vazio; resolve sr
      ;
 
 // Regra que define um comando
