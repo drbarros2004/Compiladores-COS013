@@ -20,14 +20,14 @@ WORKDIR /app
 #
 # --- PASSO 1: Construir a Imagem Docker ---
 # Você só precisa fazer isso uma vez ou quando modificar este Dockerfile.
-# Execute este comando no terminal, na mesma pasta onde este arquivo está (TP3).
+# Execute este comando no terminal, na PASTA RAIZ do projeto (onde este arquivo está).
 #
 # docker build -t meu-ambiente-cpp .
 #
 #
 # --- PASSO 2: Entrar no Contêiner para Trabalhar ---
 # Use este comando para criar um contêiner, entrar nele e "espelhar"
-# a pasta atual (TP3) para o diretório /app dentro do contêiner.
+# a pasta RAIZ inteira para o diretório /app dentro do contêiner.
 #
 # docker run --rm -it -v "$(pwd)":/app meu-ambiente-cpp /bin/bash
 #
@@ -35,7 +35,7 @@ WORKDIR /app
 #   --rm   -> Remove o contêiner automaticamente ao sair com "exit". (Recomendado)
 #   -it    -> Permite que você tenha um terminal interativo.
 #   -v     -> "Volume": espelha uma pasta do Mac para dentro do contêiner.
-#             "$(pwd)":/app significa: pasta_atual -> /app
+#             "$(pwd)":/app significa: pasta_atual_raiz -> /app
 #
 #
 # --- Comandos Úteis para Limpeza (Fora do Contêiner) ---
@@ -50,4 +50,3 @@ WORKDIR /app
 # docker ps -a
 #
 # ==============================================================================
-
