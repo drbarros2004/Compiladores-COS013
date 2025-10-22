@@ -1,0 +1,20 @@
+function f( x = 9, y = 8.1 ) {
+  log( 'Parametros: ' ); log( x ); log( ' ' ); log( y, true ); 
+  return x + y;
+}
+
+function log( msg = 'Default!', pular_linha = false ) {
+  if( pular_linha )
+    msg asm{println # undefined};
+  else
+    msg asm{print # undefined};
+}
+
+log();
+log( '-', true );
+log( f(), true );
+log( 'F = ' + f(), true );
+let x = f(),
+    a = f( 1 ),
+    b = f( false, 8, ),
+    c = f( 1, 2 );
