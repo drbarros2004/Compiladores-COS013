@@ -17,8 +17,8 @@ struct Atributos {
   int coluna = 0;
 
   // Atributos relacionados à funções
-  int n_args = 0;
-  int i = 0;
+  int n_args = 0;   // contador de argumentos
+  int i = 0;        // contador de parâmetros ?
 
   vector<string> valor_default; // Para argumentos default
 
@@ -146,9 +146,6 @@ vector<string> GET_LVALUE_VAL( Atributos lval ) {
 %left '(' ')' // Precedência para chamada de função
 %right MAIS_MAIS 
 
-// a(2)(3) é possível, logo é associativo à esquerda
-// ponto tem que ter precedência menor que o parênteses; ex.: a.nome(2)
-
 %%
 
 
@@ -186,12 +183,10 @@ CMD : DECL ';'
       }
     ;
 
-// F -> E ( ARG )
-
 EMPILHA_TS : { ts.push_back( map< string, Simbolo >{} ); } 
            ;
     
-CMD_FUNC : FUNCTION ID { declara_var( Var, $2.c[0], $2.linha, $2.coluna ); } // Declara nome da função no escopo *atual*
+CMD_FUNC : FUNCTION ID { declara_var( Var, $2.c[0], $2.linha, $2.coluna ); } // Declara nome da função no escopo atual
            '(' EMPILHA_TS LISTA_PARAMS ')' '{' CMDs '}'
            { 
              string lbl_endereco_funcao = gera_label( "func_" + $2.c[0] );
@@ -209,8 +204,8 @@ CMD_FUNC : FUNCTION ID { declara_var( Var, $2.c[0], $2.linha, $2.coluna ); } // 
            }
          ;
          
-LISTA_PARAMS : PARAMS { $$.c = $1.c; }
-             |       { $$.clear(); } // Lista vazia
+LISTA_PARAMS : PARAMS OPT_TRAIL_COMMA { $$.c = $1.c; }
+             |        { $$.clear(); } // Lista vazia
              ;
 // aqui deveria ser PARAMs, e não ARGs (definição)
            
@@ -265,7 +260,7 @@ PARAM : ID
         { 
           $$.c = $1.c;      
           $$.valor_default.clear(); // Sem valor default
-          // -> info para declara)var
+          // -> info para declara_var
           $$.linha = $1.linha;
           $$.coluna = $1.coluna;
         }
@@ -281,22 +276,29 @@ PARAM : ID
 
 
 CMD_RETURN : RETURN E ';' // return com expressão
-           { 
-             $$.c = $2.c + "'&retorno'" + "@" + "~"; 
-           }
-         | RETURN ';' // return vazio -> tem que retornar undefined de qualquer forma!
-           {
-             $$.c = vector<string>{"undefined"} + "@" + "'&retorno'" + "@" + "~";
-           }
-         ;
+              { 
+                $$.c = $2.c + "'&retorno'" + "@" + "~"; 
+              }
+            | RETURN ';' // return vazio -> tem que retornar undefined de qualquer forma!
+              {
+                $$.c = vector<string>{"undefined"} + "@" + "'&retorno'" + "@" + "~";
+              }
+            ;
 
-L_ARGS : ARGS { $$.c = $1.c; $$.n_args = $1.n_args; }
-       |     { $$.clear(); $$.n_args = 0; } 
+L_ARGS : ARGS OPT_TRAIL_COMMA { $$.c = $1.c; $$.n_args = $1.n_args; }
+       |                      { $$.clear(); $$.n_args = 0; } 
        ;
 
 ARGS : ARGS ',' E { $$.c = $1.c + $3.c; $$.n_args = $1.n_args + 1; }
      | E          { $$.c = $1.c; $$.n_args = 1; }
      ;
+
+// Melhor solução que encontrei para minha gramática recursiva à esquerda.
+// A do professor é recursiva à direita, por isso que isso fica mais
+// fácil de reproduzir lá
+OPT_TRAIL_COMMA : /* Vazio */
+                | ','
+                ;
 
 CMD_FOR : FOR '(' SF ';' E ';' EF ')' CMD
         {
@@ -386,8 +388,7 @@ CMD_IF : IF '(' E ')' CMD
          {
            string lbl_fim_if = gera_label( "fim_if" );
            string def_lbl_fim_if = ":" + lbl_fim_if;
-
-            $$.c = $3.c + "!" + lbl_fim_if  + "?" + $5.c + def_lbl_fim_if;
+           $$.c = $3.c + "!" + lbl_fim_if  + "?" + $5.c + def_lbl_fim_if;
          }
        | IF '(' E ')' CMD ELSE CMD
           {
