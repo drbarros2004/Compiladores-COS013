@@ -45,6 +45,7 @@ struct Simbolo {
 // Tabela de símbolos - agora é uma pilha (cada escopo tem sua própria tabela de símbolos)
 vector < map < string, Simbolo > > ts = { map< string, Simbolo >{} }; 
 vector<string> funcoes; 
+vector <int> alinhamento_blocos; 
 
 // Protótipos de funções
 vector<string> declara_var( TipoDecl tipo, string nome, int linha, int coluna );
@@ -130,7 +131,7 @@ vector<string> GET_LVALUE_VAL( Atributos lval ) {
 %token ID IF ELSE LET CONST VAR FOR WHILE 
 %token CDOUBLE CSTRING CINT
 %token AND OR ME_IG MA_IG DIF IGUAL
-%token MAIS_IGUAL MAIS_MAIS
+%token MAIS_IGUAL MAIS_MAIS MENOS_MENOS
 %token RETURN FUNCTION ASM // FUNÇÕES
 %token TRUE FALSE  // VALORES BOLEANOS
 
@@ -144,7 +145,7 @@ vector<string> GET_LVALUE_VAL( Atributos lval ) {
 %left '['
 %left '.'
 %left '(' ')' // Precedência para chamada de função
-%right MAIS_MAIS 
+%right MAIS_MAIS MENOS_MENOS
 
 %%
 
@@ -161,18 +162,28 @@ CMDs : CMDs CMD  { $$.c = $1.c + $2.c; }
 // Regra que define um comando
 CMD : DECL ';'
     | CMD_IF
-    /* | PRINT E ';'
-      { $$.c = $2.c + "println" + "#"; } */
     | CMD_FOR
     | CMD_WHILE
     | E ';'
       { $$.c = $1.c + "^"; }
-    /* | '{' CMDs '}'            // Bloco de comandos (conflito com a regra logo abaixo; conferir)
-      { $$.c = $2.c; } */
-    | '{' EMPILHA_TS CMDs '}'  // (para usar escopo)
+    | '{' 
+      { 
+        // Ação para incrementar alinhamento_blocos
+        if (!alinhamento_blocos.empty()) {
+          alinhamento_blocos.back()++;
+        }
+      }
+      EMPILHA_TS CMDs '}'
       { 
         ts.pop_back(); 
-        $$.c = "<{" + $3.c + "}>"; // Gera instruções de escopo 
+        
+        // Ação para decrementar alinhamento_blocos
+        if (!alinhamento_blocos.empty()) {
+          alinhamento_blocos.back()--;
+        }
+        
+        // CORRIJA $3.c PARA $4.c AQUI
+        $$.c = "<{" + $4.c + "}>"; 
       }
     | ';' { $$.clear(); }
     | CMD_FUNC
@@ -183,11 +194,18 @@ CMD : DECL ';'
       }
     ;
 
+
+
 EMPILHA_TS : { ts.push_back( map< string, Simbolo >{} ); } 
            ;
-    
-CMD_FUNC : FUNCTION ID { declara_var( Var, $2.c[0], $2.linha, $2.coluna ); } // Declara nome da função no escopo atual
-           '(' EMPILHA_TS LISTA_PARAMS ')' '{' CMDs '}'
+
+EMPILHA_ALINHAMENTO : { alinhamento_blocos.push_back(1); } // Empilha 1 (o RA da função)
+                    ;
+
+CMD_FUNC : FUNCTION ID { declara_var( Var, $2.c[0], $2.linha, $2.coluna ); } 
+           '(' EMPILHA_TS LISTA_PARAMS ')' 
+           EMPILHA_ALINHAMENTO  
+           '{' CMDs '}'
            { 
              string lbl_endereco_funcao = gera_label( "func_" + $2.c[0] );
              string definicao_lbl_endereco_funcao = ":" + lbl_endereco_funcao;
@@ -196,11 +214,12 @@ CMD_FUNC : FUNCTION ID { declara_var( Var, $2.c[0], $2.linha, $2.coluna ); } // 
                     lbl_endereco_funcao + "[=]" + "^";
                     
              funcoes = funcoes + definicao_lbl_endereco_funcao
-                     + $6.c   
-                     + $9.c 
+                     + $6.c   // LISTA_PARAMS
+                     + $10.c  // CMDs
                      + "undefined" + "@" + "'&retorno'" + "@"+ "~";
                      
              ts.pop_back();
+             alinhamento_blocos.pop_back(); 
            }
          ;
          
@@ -277,11 +296,42 @@ PARAM : ID
 
 CMD_RETURN : RETURN E ';' // return com expressão
               { 
-                $$.c = $2.c + "'&retorno'" + "@" + "~"; 
+                if (alinhamento_blocos.empty()) {
+                  yyerror("Erro: 'return' encontrado fora de uma função.");
+                  YYABORT;
+                }
+                
+                int num_pops_blocos = alinhamento_blocos.back() - 1;
+                $$.c.clear(); // Limpa o "return" de $1.c
+                
+                $$.c += $2.c; 
+                
+                // Gera N-1 '}>' para fechar os blocos
+                for(int i = 0; i < num_pops_blocos; i++) {
+                  $$.c += "}>";
+                }
+                
+                $$.c = $$.c + "'&retorno'" + "@" + "~";
               }
-            | RETURN ';' // return vazio -> tem que retornar undefined de qualquer forma!
+            | RETURN ';' // return vazio
               {
-                $$.c = vector<string>{"undefined"} + "@" + "'&retorno'" + "@" + "~";
+                if (alinhamento_blocos.empty()) {
+                  yyerror("Erro: 'return' encontrado fora de uma função.");
+                  YYABORT;
+                }
+                
+                int num_pops_blocos = alinhamento_blocos.back() - 1;
+                $$.c.clear(); // Limpa o "return" de $1.c
+
+                // Adiciona o valor 'undefined' antes
+                $$.c += vector<string>{"undefined"} + "@";
+
+                // Gera N-1 '}>' para fechar os blocos
+                for(int i = 0; i < num_pops_blocos; i++) {
+                  $$.c += "}>";
+                }
+                
+                $$.c = $$.c + "'&retorno'" + "@" + "~";
               }
             ;
 
@@ -409,7 +459,7 @@ LVALUE : LVALUE_VAR
        | LVALUE_PROP
        ;
 
-// LVALUE_PROP: L-value de propriedade. Gera código para buscar o objeto/array.
+// LVALUE_PROP: L-value de propriedade. 
 LVALUE_PROP : F '[' E ']' { $$.c = $1.c + $3.c; }
             | F '.' ID    { $$.c = $1.c + $3.c; }
             ;
@@ -461,6 +511,46 @@ E_BIN : E_BIN '<' E_BIN     { $$.c = $1.c + $3.c + $2.c; }
       | E_BIN '*' E_BIN     { $$.c = $1.c + $3.c + $2.c; }
       | E_BIN '/' E_BIN     { $$.c = $1.c + $3.c + $2.c; }
       | E_BIN '%' E_BIN     { $$.c = $1.c + $3.c + $2.c; }
+      | LVALUE_VAR MAIS_MAIS
+        {
+          checa_simbolo($1.c[0], true);
+          $$.c = GET($1.c) + $1.c + GET($1.c) + "1" + "+" + "=" + "^";
+        }
+      | LVALUE_PROP MAIS_MAIS
+        {
+          checa_simbolo($1.c[0], true);
+          $$.c = GET_LVALUE_VAL($1) + $1.c + GET_LVALUE_VAL($1) + "1" + "+" + "[=]" + "^";
+        }
+      | LVALUE_VAR MENOS_MENOS
+        {
+          checa_simbolo($1.c[0], true);
+          $$.c = GET($1.c) + $1.c + GET($1.c) + "1" + "-" + "=" + "^";
+        }
+      | LVALUE_PROP MENOS_MENOS
+        {
+          checa_simbolo($1.c[0], true);
+          $$.c = GET_LVALUE_VAL($1) + $1.c + GET_LVALUE_VAL($1) + "1" + "-" + "[=]" + "^";
+        }
+      | MAIS_MAIS LVALUE_VAR
+        {
+          checa_simbolo($2.c[0], true);
+          $$.c = $2.c + GET($2.c) + "1" + "+" + "=";
+        }
+      | MAIS_MAIS LVALUE_PROP
+        {
+          checa_simbolo($2.c[0], true);
+          $$.c = $2.c + GET_LVALUE_VAL($2) + "1" + "+" + "[=]";
+        }
+      | MENOS_MENOS LVALUE_VAR
+        {
+          checa_simbolo($2.c[0], true);
+          $$.c = $2.c + GET($2.c) + "1" + "-" + "=";
+        }
+      | MENOS_MENOS LVALUE_PROP
+        {
+          checa_simbolo($2.c[0], true);
+          $$.c = $2.c + GET_LVALUE_VAL($2) + "1" + "-" + "[=]";
+        }
       | F
       ;
 
@@ -480,11 +570,6 @@ F : LVALUE      { $$.c = GET_LVALUE_VAL($1); }
   | CDOUBLE
   | CINT
   | CSTRING
-  | LVALUE MAIS_MAIS
-    {
-      checa_simbolo($1.c[0], true);
-      $$.c = GET($1.c) + $1.c + GET($1.c) + "1" + "+" + "=" + "^" ;
-    }
   | '(' E ')'   { $$.c = $2.c; }
   | '-' F       { $$.c = vector<string>{"0"} + $2.c + "-"; }
   | '+' F       { $$.c = vector<string>{"0"} + $2.c + "-"; }

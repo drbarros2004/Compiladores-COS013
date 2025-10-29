@@ -71,6 +71,7 @@ STRING      (\"([^\n\r\"\\]*|\\.|\"\")*\")|(\'([^\n\r\'\\]*|\\.|\'\')*\')
 
 "+="       { return token( MAIS_IGUAL ); }
 "++"       { return token( MAIS_MAIS ); }
+"--"       { return token( MENOS_MENOS ); } 
 
 "return"   { return token( RETURN ); }
 "function" { return token( FUNCTION ); }
