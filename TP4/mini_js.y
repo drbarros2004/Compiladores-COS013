@@ -22,6 +22,11 @@ struct Atributos {
 
   vector<string> valor_default; // Para argumentos default
 
+  // Metadados para LVALUE_PROP
+  bool is_prop = false;
+  string tb; // temporário para base
+  string tk; // temporário para key
+
   void clear() {
     c.clear();
     linha = 0;
@@ -29,6 +34,9 @@ struct Atributos {
     n_args = 0;
     i = 0;
     valor_default.clear(); 
+    is_prop = false;
+    tb.clear();
+    tk.clear();
   }
 };
 
@@ -116,12 +124,35 @@ vector<string> GET (vector<string> var) {
   return var + "@";
 }
 
+// Helpers de temporários de propriedade
+string novo_temp() {
+  static int n = 0;
+  return "__t" + to_string(++n);
+}
+
+vector<string> SET_TEMP(string nome, vector<string> expr) {
+  return declara_var( Var, nome, 0, 0 )
+       + nome + expr + "=" + "^";
+}
+
+vector<string> GET_NOME(string nome) {
+  return vector<string>{ nome } + "@";
+}
+
+vector<string> GET_PROP(Atributos const& lval) {
+  return GET_NOME(lval.tb) + GET_NOME(lval.tk) + "[@]";
+}
+
+vector<string> SET_PROP(Atributos const& lval, vector<string> valor) {
+  return GET_NOME(lval.tb) + GET_NOME(lval.tk) + valor + "[=]";
+}
+
 vector<string> GET_LVALUE_VAL( Atributos lval ) {
-  // O tamanho do vetor de código indica se é um ID simples ou um acesso composto (propriedade de objeto).
-  if (lval.c.size() > 1) {
-    return lval.c + "[@]";
+  if (lval.is_prop) {
+    // abre um RA temporário para as temps (tb, tk)
+    return vector<string>{"<{"} + lval.c + GET_PROP(lval) + vector<string>{"}>"};
   } else {
-    return GET(lval.c); 
+    return GET(lval.c);
   }
 }
 
@@ -131,12 +162,12 @@ vector<string> GET_LVALUE_VAL( Atributos lval ) {
 %token ID IF ELSE LET CONST VAR FOR WHILE 
 %token CDOUBLE CSTRING CINT
 %token AND OR ME_IG MA_IG DIF IGUAL
-%token MAIS_IGUAL MAIS_MAIS MENOS_MENOS
+%token MAIS_IGUAL MAIS_MAIS MENOS_MENOS MENOS_IGUAL
 %token RETURN FUNCTION ASM // FUNÇÕES
 %token TRUE FALSE  // VALORES BOLEANOS
 
 // Definição de precedência e associatividade dos operadores
-%right '=' MAIS_IGUAL 
+%right '=' MAIS_IGUAL MENOS_IGUAL
 %left OR
 %left AND
 %nonassoc '<' '>' IGUAL MA_IG ME_IG DIF
@@ -459,9 +490,25 @@ LVALUE : LVALUE_VAR
        | LVALUE_PROP
        ;
 
-// LVALUE_PROP: L-value de propriedade. 
-LVALUE_PROP : F '[' E ']' { $$.c = $1.c + $3.c; }
-            | F '.' ID    { $$.c = $1.c + $3.c; }
+LVALUE_PROP : F '[' E ']' 
+            {
+              // Avalia base e índice uma única vez em temporários
+              $$.tb = novo_temp();
+              $$.tk = novo_temp();
+              $$.c  = SET_TEMP($$.tb, $1.c)
+                    + SET_TEMP($$.tk, $3.c);
+              $$.is_prop = true;
+            }
+            | F '.' ID    
+            {
+              // Chave por nome deve ser string literal
+              $$.tb = novo_temp();
+              $$.tk = novo_temp();
+              vector<string> key = vector<string>{ "'" + $3.c[0] + "'" };
+              $$.c  = SET_TEMP($$.tb, $1.c)
+                    + SET_TEMP($$.tk, key);
+              $$.is_prop = true;
+            }
             ;
 
 // LVALUE_VAR: ID simples
@@ -473,12 +520,12 @@ LVALUE_VAR : ID ;
 ATRIB : LVALUE_VAR '=' E
         {
           checa_simbolo( $1.c[0], true );
-          $$.c = $1.c + $3.c + "=";     // "=" para variáveis
+          $$.c = $1.c + $3.c + "=";
         }
       | LVALUE_PROP '=' E
         {
-          checa_simbolo( $1.c[0], true );
-          $$.c = $1.c + $3.c + "[=]";   // "[=]" para propriedades
+          // usa RA temporário para esconder __t*
+          $$.c = "<{" + $1.c + SET_PROP($1, $3.c) + "}>";
         }
       | LVALUE_VAR MAIS_IGUAL E
         {
@@ -487,8 +534,13 @@ ATRIB : LVALUE_VAR '=' E
         }
       | LVALUE_PROP MAIS_IGUAL E
         {
-          checa_simbolo( $1.c[0], true );
-          $$.c = $1.c + $1.c + "[@]" + $3.c + "+" + "[=]";
+          $$.c = "<{" 
+               + $1.c
+               + GET_NOME($1.tb) + GET_NOME($1.tk)
+               + GET_PROP($1)
+               + $3.c + "+"
+               + "[=]"
+               + "}>";
         }
       ;
 
@@ -516,40 +568,58 @@ E_BIN : E_BIN '<' E_BIN     { $$.c = $1.c + $3.c + $2.c; }
           checa_simbolo($1.c[0], true);
           $$.c = GET($1.c) + $1.c + GET($1.c) + "1" + "+" + "=" + "^";
         }
-      | LVALUE_PROP MAIS_MAIS
-        {
-          checa_simbolo($1.c[0], true);
-          $$.c = GET_LVALUE_VAL($1) + $1.c + GET_LVALUE_VAL($1) + "1" + "+" + "[=]" + "^";
-        }
       | LVALUE_VAR MENOS_MENOS
         {
           checa_simbolo($1.c[0], true);
           $$.c = GET($1.c) + $1.c + GET($1.c) + "1" + "-" + "=" + "^";
-        }
-      | LVALUE_PROP MENOS_MENOS
-        {
-          checa_simbolo($1.c[0], true);
-          $$.c = GET_LVALUE_VAL($1) + $1.c + GET_LVALUE_VAL($1) + "1" + "-" + "[=]" + "^";
         }
       | MAIS_MAIS LVALUE_VAR
         {
           checa_simbolo($2.c[0], true);
           $$.c = $2.c + GET($2.c) + "1" + "+" + "=";
         }
-      | MAIS_MAIS LVALUE_PROP
-        {
-          checa_simbolo($2.c[0], true);
-          $$.c = $2.c + GET_LVALUE_VAL($2) + "1" + "+" + "[=]";
-        }
       | MENOS_MENOS LVALUE_VAR
         {
           checa_simbolo($2.c[0], true);
           $$.c = $2.c + GET($2.c) + "1" + "-" + "=";
         }
+      | LVALUE_PROP MAIS_MAIS
+        {
+          // pós-incremento com RA temporário
+          $$.c = "<{"
+               + $1.c
+               + GET_PROP($1)
+               + GET_NOME($1.tb) + GET_NOME($1.tk)
+               + GET_PROP($1) + "1" + "+" + "[=]" + "^"
+               + "}>";
+        }
+      | LVALUE_PROP MENOS_MENOS
+        {
+          // pós-decremento com RA temporário
+          $$.c = "<{"
+               + $1.c
+               + GET_PROP($1)
+               + GET_NOME($1.tb) + GET_NOME($1.tk)
+               + GET_PROP($1) + "1" + "-" + "[=]" + "^"
+               + "}>";
+        }
+      | MAIS_MAIS LVALUE_PROP
+        {
+          // pré-incremento
+          $$.c = "<{"
+               + $2.c
+               + GET_NOME($2.tb) + GET_NOME($2.tk)
+               + GET_PROP($2) + "1" + "+" + "[=]"
+               + "}>";
+        }
       | MENOS_MENOS LVALUE_PROP
         {
-          checa_simbolo($2.c[0], true);
-          $$.c = $2.c + GET_LVALUE_VAL($2) + "1" + "-" + "[=]";
+          // pré-decremento
+          $$.c = "<{"
+               + $2.c
+               + GET_NOME($2.tb) + GET_NOME($2.tk)
+               + GET_PROP($2) + "1" + "-" + "[=]"
+               + "}>";
         }
       | F
       ;
