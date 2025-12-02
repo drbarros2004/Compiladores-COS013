@@ -267,10 +267,6 @@ CMD : DECL ';'
       { 
         $$.c = $1.c + $2.c + "^"; 
       }
-    /* | BLVAZIO 
-      { 
-        $$.clear(); // Bloco vazio não gera código nenhum!
-      } */
     ;
 
 EMPILHA_TS : { ts.push_back( map< string, Simbolo >{} ); } 
@@ -676,6 +672,48 @@ E_BIN : E_BIN '<' E_BIN     { $$.c = $1.c + $3.c + $2.c; }
 
 // F: Fatores. A base de uma expressão. 
 F : LVALUE      { $$.c = GET_LVALUE_VAL($1); }
+  | ID SETA 
+    { 
+      capturas_escopo.push_back(vector<string>{}); 
+      ts.push_back( map< string, Simbolo >{} ); 
+      declara_var( Var, $1.c[0], $1.linha, $1.coluna );
+      alinhamento_blocos.push_back(1);
+    }
+    E 
+    {
+       string lbl_func = gera_label("func_seta");
+       string def_lbl = ":" + lbl_func;
+
+       vector<string> caps = capturas_escopo.back();
+       capturas_escopo.pop_back();
+       
+       vector<string> codigo_captura = vector<string>{"{}"};
+       for(string var : caps) {
+           string var_limpa = trim_str(var);
+           string chave = "'" + var_limpa + "'";
+           codigo_captura = codigo_captura + 
+                            chave + 
+                            (var_limpa + "@") + 
+                            "[<=]";
+       }
+
+       $$.c = vector<string>{"{}"} + 
+              "'&funcao'" + lbl_func + "[<=]";
+              
+       if( !caps.empty() ) {
+         $$.c = $$.c + "'captura'" + codigo_captura + "[<=]";
+       }
+
+       vector<string> param_setup = $1.c + "&" + $1.c + "arguments" + "@" + "0" + "[@]" + "=" + "^";
+
+       funcoes = funcoes + def_lbl + 
+                 param_setup + 
+                 $4.c + 
+                 "'&retorno'" + "@" + "~";
+
+       ts.pop_back();
+       alinhamento_blocos.pop_back();
+    }
   | F '(' L_ARGS ')' 
     {
       $$.c = $3.c + to_string($3.n_args) + $1.c + "$";
@@ -736,8 +774,11 @@ F : LVALUE      { $$.c = GET_LVALUE_VAL($1); }
        }
 
        $$.c = vector<string>{"{}"} + 
-              "'&funcao'" + lbl_func + "[<=]" +
-              "'captura'" + codigo_captura + "[<=]";
+              "'&funcao'" + lbl_func + "[<=]";
+
+       if( !caps.empty() ) {
+         $$.c = $$.c + "'captura'" + codigo_captura + "[<=]";
+       }
 
        funcoes = funcoes + def_lbl + $5.c + $9.c + 
                  "undefined" + "@" + "'&retorno'" + "@" + "~";
@@ -821,7 +862,6 @@ void checa_simbolo( string nome, bool modificavel ) {
   }
 
   cerr << "Variavel '" << nome << "' não declarada." << endl;
-  exit( 1 );     
 }
 
 // Função de erro padrão do Bison.
