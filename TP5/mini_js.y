@@ -222,8 +222,8 @@ vector<string> GET_LVALUE_VAL( Atributos lval ) {
 // --- ADICIONE ISTO AQUI ---
 %nonassoc LOW // Precedência mínima para forçar Shift em conflitos
 
-%left ':'
 %right '=' MAIS_IGUAL MENOS_IGUAL SETA
+%right '?' ':'         // Operador ternário (right associative)
 %left OR
 %left AND
 %nonassoc '<' '>' IGUAL MA_IG ME_IG DIF
@@ -560,6 +560,25 @@ LVALUE : ID
                + SET_TEMP($$.tk, key);
          $$.is_prop = true;
        }
+       | '(' E ')' '[' E ']'
+       {
+         // (expr)[index] - propriedade de expressão parentetizada
+         $$.tb = novo_temp();
+         $$.tk = novo_temp();
+         $$.c  = SET_TEMP($$.tb, $2.c)
+               + SET_TEMP($$.tk, $5.c);
+         $$.is_prop = true;
+       }
+       | '(' E ')' '.' ID
+       {
+         // (expr).prop - propriedade de expressão parentetizada
+         $$.tb = novo_temp();
+         $$.tk = novo_temp();
+         vector<string> key = vector<string>{ "'" + $5.c[0] + "'" };
+         $$.c  = SET_TEMP($$.tb, $2.c)
+               + SET_TEMP($$.tk, key);
+         $$.is_prop = true;
+       }
        ;
 
 
@@ -605,6 +624,19 @@ E : ATRIB
   | E '/' E     { $$.c = $1.c + $3.c + $2.c; }
   | E '%' E     { $$.c = $1.c + $3.c + $2.c; }
   | E ASM       { $$.c = $1.c + $2.c; }  // ASM como expressão
+  | E '?' E ':' E
+    {
+      // Operador ternário: cond ? then : else
+      string lbl_else = gera_label("tern_else");
+      string lbl_fim = gera_label("tern_fim");
+      $$.c = $1.c +                        // condição
+             "!" + lbl_else + "?" +        // se falso, vai para else
+             $3.c +                        // valor se verdadeiro
+             lbl_fim + "#" +               // pula para o fim
+             (":" + lbl_else) +            // label else
+             $5.c +                        // valor se falso
+             (":" + lbl_fim);              // label fim
+    }
   
   // --- INÍCIO DA CORREÇÃO 1: Regras movidas de F para E ---
   | ID SETA 
@@ -717,21 +749,31 @@ ARROW_BODY : E %prec SETA
            ;
 
 // Coleta apenas os nomes dos parâmetros
-// CORREÇÃO 2: Alterado de LVALUE para ID para evitar conflitos com acesso a arrays/propriedades.
-ARROW_PARAMS : ID
-             { 
-               $$.params.push_back($1.c[0]); 
-               $$.linha = $1.linha;
-               $$.coluna = $1.coluna;
-             }
-             | ARROW_PARAMS ',' ID
+// ARROW_PARAMS: Parâmetros para arrow functions com parênteses
+// Suporta parâmetros simples e com valores default
+// NOTA: ID '=' E só é permitido APÓS vírgula para evitar conflito com (ID = E)
+ARROW_PARAMS : ARROW_PARAMS ',' ID
              { 
                $$.params = $1.params;
-               $$.params.push_back($3.c[0]); 
+               $$.params.push_back($3.c[0]);
+               $$.valor_default = $1.valor_default;
+             }
+             | ARROW_PARAMS ',' ID '=' E
+             { 
+               $$.params = $1.params;
+               $$.params.push_back($3.c[0]);
+               $$.valor_default = $1.valor_default;
+             }
+             | ID
+             { 
+               $$.params.clear();
+               $$.params.push_back($1.c[0]);
+               $$.valor_default.clear();
              }
              | /* vazio */
              { 
                $$.params.clear();
+               $$.valor_default.clear();
              }
              ;
 
@@ -807,6 +849,79 @@ F : LVALUE
   | F '(' L_ARGS ')' 
     {
       $$.c = $3.c + to_string($3.n_args) + $1.c + "$";
+    }
+  | F '(' L_ARGS ')' '[' E ']'
+    {
+      // f(x)[i] - acesso a índice no resultado de chamada de função
+      $$.c = $3.c + to_string($3.n_args) + $1.c + "$" + $6.c + "[@]";
+    }
+  | F '(' L_ARGS ')' '.' ID
+    {
+      // f(x).prop - acesso a propriedade no resultado de chamada de função
+      vector<string> key = vector<string>{ "'" + $6.c[0] + "'" };
+      $$.c = $3.c + to_string($3.n_args) + $1.c + "$" + key + "[@]";
+    }
+  | F '(' L_ARGS ')' '[' E ']' MAIS_MAIS
+    {
+      // f(x)[i]++ - pós-incremento em propriedade de resultado de função
+      string tb = novo_temp();
+      string tk = novo_temp();
+      vector<string> call_code = $3.c + to_string($3.n_args) + $1.c + "$";
+      $$.c = "<{"
+           + SET_TEMP(tb, call_code)
+           + SET_TEMP(tk, $6.c)
+           + GET_NOME(tb) + GET_NOME(tk) + "[@]"  // valor original (retorno)
+           + GET_NOME(tb) + GET_NOME(tk)          // prepara pilha p/ set
+           + GET_NOME(tb) + GET_NOME(tk) + "[@]" + "1" + "+"  // valor + 1
+           + "[=]" + "^"                          // atribui e descarta
+           + "}>";
+    }
+  | F '(' L_ARGS ')' '[' E ']' MENOS_MENOS
+    {
+      // f(x)[i]-- - pós-decremento em propriedade de resultado de função
+      string tb = novo_temp();
+      string tk = novo_temp();
+      vector<string> call_code = $3.c + to_string($3.n_args) + $1.c + "$";
+      $$.c = "<{"
+           + SET_TEMP(tb, call_code)
+           + SET_TEMP(tk, $6.c)
+           + GET_NOME(tb) + GET_NOME(tk) + "[@]"
+           + GET_NOME(tb) + GET_NOME(tk)
+           + GET_NOME(tb) + GET_NOME(tk) + "[@]" + "1" + "-"
+           + "[=]" + "^"
+           + "}>";
+    }
+  | F '(' L_ARGS ')' '.' ID MAIS_MAIS
+    {
+      // f(x).prop++ - pós-incremento em propriedade de resultado de função
+      string tb = novo_temp();
+      string tk = novo_temp();
+      vector<string> call_code = $3.c + to_string($3.n_args) + $1.c + "$";
+      vector<string> key = vector<string>{ "'" + $6.c[0] + "'" };
+      $$.c = "<{"
+           + SET_TEMP(tb, call_code)
+           + SET_TEMP(tk, key)
+           + GET_NOME(tb) + GET_NOME(tk) + "[@]"
+           + GET_NOME(tb) + GET_NOME(tk)
+           + GET_NOME(tb) + GET_NOME(tk) + "[@]" + "1" + "+"
+           + "[=]" + "^"
+           + "}>";
+    }
+  | F '(' L_ARGS ')' '.' ID MENOS_MENOS
+    {
+      // f(x).prop-- - pós-decremento em propriedade de resultado de função
+      string tb = novo_temp();
+      string tk = novo_temp();
+      vector<string> call_code = $3.c + to_string($3.n_args) + $1.c + "$";
+      vector<string> key = vector<string>{ "'" + $6.c[0] + "'" };
+      $$.c = "<{"
+           + SET_TEMP(tb, call_code)
+           + SET_TEMP(tk, key)
+           + GET_NOME(tb) + GET_NOME(tk) + "[@]"
+           + GET_NOME(tb) + GET_NOME(tk)
+           + GET_NOME(tb) + GET_NOME(tk) + "[@]" + "1" + "-"
+           + "[=]" + "^"
+           + "}>";
     }
   | TRUE    { $$.c = $1.c; } 
   | FALSE   { $$.c = $1.c; } 
