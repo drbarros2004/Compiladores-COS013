@@ -229,6 +229,7 @@ vector<string> GET_LVALUE_VAL( Atributos lval ) {
 %nonassoc '<' '>' IGUAL MA_IG ME_IG DIF
 %left '+' '-'
 %left '*' '/' '%'
+%left ASM                     // ASM como operador postfixo
 %right MAIS_MAIS MENOS_MENOS  // <--- MOVIDO PARA CÁ (Menor precedência que . e [)
 %left '['                     // <--- ESTES FICAM EMBAIXO (Maior precedência)
 %left '.'
@@ -275,10 +276,6 @@ CMD : DECL ';'
     | ';' { $$.clear(); }
     | CMD_FUNC
     | CMD_RETURN
-    | E ASM ';'  // ASM é uma forma de gerar código DIRETO para a máquina de pilha
-      { 
-        $$.c = $1.c + $2.c + "^"; 
-      }
     ;
 
 EMPILHA_TS : { ts.push_back( map< string, Simbolo >{} ); } 
@@ -607,6 +604,7 @@ E : ATRIB
   | E '*' E     { $$.c = $1.c + $3.c + $2.c; }
   | E '/' E     { $$.c = $1.c + $3.c + $2.c; }
   | E '%' E     { $$.c = $1.c + $3.c + $2.c; }
+  | E ASM       { $$.c = $1.c + $2.c; }  // ASM como expressão
   
   // --- INÍCIO DA CORREÇÃO 1: Regras movidas de F para E ---
   | ID SETA 
