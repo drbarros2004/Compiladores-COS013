@@ -252,7 +252,7 @@ CMDs : CMDs CMD  { $$.c = $1.c + $2.c; }
 // ... CMDs : CMDs CMD | CMD ; (Mantenha o CMDs original)
 
 OPT_CMDs : CMDs { $$.c = $1.c; }
-         |      { $$.clear(); }
+         |      { $$.clear(); } %prec FORCE_BLOCK
          ;
 
 INICIA_BLOCO : { if (!alinhamento_blocos.empty()) alinhamento_blocos.back()++; } %prec FORCE_BLOCK ;
@@ -706,12 +706,12 @@ E : ATRIB
   ;
 
 // ARROW_BODY: Corpo de uma arrow function (expressão ou bloco)
-ARROW_BODY : E 
+ARROW_BODY : E %prec SETA
              { 
                // Expressão: retorna o valor
                $$.c = $1.c + "'&retorno'" + "@" + "~"; 
              }
-           | '{' OPT_CMDs '}' 
+           | '{' OPT_CMDs '}' %prec FORCE_BLOCK
              { 
                // Bloco: executa comandos e retorna undefined se não houver return explícito
                $$.c = $2.c + "undefined" + "@" + "'&retorno'" + "@" + "~"; 
