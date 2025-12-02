@@ -74,11 +74,18 @@ void yyerror(const char *);
 vector<string> resolve_enderecos( vector<string> entrada ) {
   map<string,int> label;
   vector<string> saida;
-  for( int i = 0; i < entrada.size(); i++ )
-    if( entrada[i][0] == ':' )
-        label[entrada[i].substr(1)] = saida.size();
+  
+  for( int i = 0; i < entrada.size(); i++ ) {
+    if( entrada[i].empty() ) {
+      continue;
+    }
+    if( entrada[i][0] == ':' ) {
+        string lbl_name = entrada[i].substr(1);
+        label[lbl_name] = saida.size();
+    }
     else
       saida.push_back( entrada[i] );
+  }
 
   for( int i = 0; i < saida.size(); i++ )
     if( label.count( saida[i] ) > 0 )
@@ -622,7 +629,7 @@ E : ATRIB
            string chave = "'" + var_limpa + "'";
            codigo_captura = codigo_captura + 
                             chave + 
-                            (var_limpa + "@") + 
+                            var_limpa + "@" + 
                             "[<=]";
        }
 
@@ -661,7 +668,7 @@ E : ATRIB
        for(string var : caps) {
            string var_limpa = trim_str(var);
            string chave = "'" + var_limpa + "'";
-           codigo_captura = codigo_captura + chave + (var_limpa + "@") + "[<=]";
+           codigo_captura = codigo_captura + chave + var_limpa + "@" + "[<=]";
        }
 
        vector<string> setup_params;
@@ -681,7 +688,7 @@ E : ATRIB
 
        funcoes = funcoes + def_lbl + 
                  setup_params + 
-                 $5.c + // Corpo da expressão agora é $5
+                 $6.c + // Corpo da expressão é $6 (mid-rule action é $5)
                  "'&retorno'" + "@" + "~";
        ts.pop_back();
        alinhamento_blocos.pop_back();
@@ -824,7 +831,7 @@ F : LVALUE
            string chave = "'" + var_limpa + "'";
            codigo_captura = codigo_captura + 
                             chave + 
-                            (var_limpa + "@") + 
+                            var_limpa + "@" + 
                             "[<=]";
        }
 
