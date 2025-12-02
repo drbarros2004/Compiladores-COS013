@@ -377,7 +377,8 @@ PARAM : ID
 CMD_RETURN : RETURN E ';' // return com expressão
               { 
                 if (alinhamento_blocos.empty()) {
-                  yyerror("Erro: 'return' encontrado fora de uma função.");
+                  cerr << "Erro: Não é permitido 'return' fora de funções." << endl;
+                  cout << "." << endl;
                   YYABORT;
                 }
                 
@@ -396,7 +397,8 @@ CMD_RETURN : RETURN E ';' // return com expressão
             | RETURN ';' // return vazio
               {
                 if (alinhamento_blocos.empty()) {
-                  yyerror("Erro: 'return' encontrado fora de uma função.");
+                  cerr << "Erro: Não é permitido 'return' fora de funções." << endl;
+                  cout << "." << endl;
                   YYABORT;
                 }
                 
