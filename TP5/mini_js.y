@@ -579,6 +579,8 @@ ATRIB : LVALUE '=' E
       ;
 
 // E: Expressões. Pode ser uma atribuição ou uma operação binária/fator.
+// E: Expressões.
+// Pode ser uma atribuição, uma operação binária ou uma função seta.
 E : ATRIB
   | E '<' E     { $$.c = $1.c + $3.c + $2.c; }
   | E '>' E     { $$.c = $1.c + $3.c + $2.c; }
@@ -593,29 +595,123 @@ E : ATRIB
   | E '*' E     { $$.c = $1.c + $3.c + $2.c; }
   | E '/' E     { $$.c = $1.c + $3.c + $2.c; }
   | E '%' E     { $$.c = $1.c + $3.c + $2.c; }
+  
+  // --- INÍCIO DA CORREÇÃO 1: Regras movidas de F para E ---
+  | ID SETA 
+    { 
+      // 1. AÇÃO DE INICIALIZAÇÃO
+      capturas_escopo.push_back(vector<string>{}); 
+      ts.push_back( map< string, Simbolo >{} ); 
+      alinhamento_blocos.push_back(1);
+      
+      // Declara o parâmetro no NOVO escopo.
+      declara_var( Var, $1.c[0], $1.linha, $1.coluna );
+    }
+    E 
+    {
+       // 2. GERAÇÃO DE CÓDIGO
+       string lbl_func = gera_label("func_seta");
+       string def_lbl = ":" + lbl_func;
+
+       vector<string> caps = capturas_escopo.back();
+       capturas_escopo.pop_back();
+       
+       vector<string> codigo_captura = vector<string>{"{}"};
+       for(string var : caps) {
+           string var_limpa = trim_str(var);
+           string chave = "'" + var_limpa + "'";
+           codigo_captura = codigo_captura + 
+                            chave + 
+                            (var_limpa + "@") + 
+                            "[<=]";
+       }
+
+       $$.c = vector<string>{"{}"} + 
+              "'&funcao'" + lbl_func + "[<=]";
+       if( !caps.empty() ) {
+         $$.c = $$.c + "'captura'" + codigo_captura + "[<=]";
+       }
+
+       // Setup do argumento único
+       vector<string> param_setup = $1.c + "&" + $1.c + "arguments" + "@" + "0" + "[@]" + "=" + "^";
+       funcoes = funcoes + def_lbl + 
+                 param_setup + 
+                 $4.c + // O corpo da expressão agora é $4
+                 "'&retorno'" + "@" + "~";
+       ts.pop_back();
+       alinhamento_blocos.pop_back();
+    }
+  | '(' 
+    ARROW_PARAMS FPL SETA 
+    {
+       // 1. Inicializa tudo AQUI agora
+       capturas_escopo.push_back(vector<string>{}); 
+       ts.push_back( map< string, Simbolo >{} ); 
+       alinhamento_blocos.push_back(1);
+    }
+    E 
+    {
+       string lbl_func = gera_label("func_seta");
+       string def_lbl = ":" + lbl_func;
+
+       vector<string> caps = capturas_escopo.back();
+       capturas_escopo.pop_back();
+       
+       vector<string> codigo_captura = vector<string>{"{}"};
+       for(string var : caps) {
+           string var_limpa = trim_str(var);
+           string chave = "'" + var_limpa + "'";
+           codigo_captura = codigo_captura + chave + (var_limpa + "@") + "[<=]";
+       }
+
+       vector<string> setup_params;
+       int idx = 0;
+       for(string nome : $2.params) { // Note que agora é $2 (ARROW_PARAMS)
+           declara_var(Var, nome, 0, 0);
+           setup_params = setup_params + 
+                          nome + "&" + nome + "arguments" + "@" + to_string(idx) + "[@]" + "=" + "^";
+           idx++;
+       }
+
+       $$.c = vector<string>{"{}"} + 
+              "'&funcao'" + lbl_func + "[<=]";
+       if( !caps.empty() ) {
+         $$.c = $$.c + "'captura'" + codigo_captura + "[<=]";
+       }
+
+       funcoes = funcoes + def_lbl + 
+                 setup_params + 
+                 $5.c + // Corpo da expressão agora é $5
+                 "'&retorno'" + "@" + "~";
+       ts.pop_back();
+       alinhamento_blocos.pop_back();
+    }
+  // --- FIM DA CORREÇÃO 1 ---
+
   | F %prec LOW
   ;
 
-// Coleta apenas os nomes dos parâmetros (Usando LVALUE para evitar conflitos)
-ARROW_PARAMS : LVALUE
+// Coleta apenas os nomes dos parâmetros
+// CORREÇÃO 2: Alterado de LVALUE para ID para evitar conflitos com acesso a arrays/propriedades.
+ARROW_PARAMS : ID
              { 
-               // Como é um parâmetro, pegamos apenas o nome.
-               // Não precisamos verificar se é propriedade, pois a sintaxe (x.y) => falharia depois.
                $$.params.push_back($1.c[0]); 
-               $$.linha = $1.linha; $$.coluna = $1.coluna;
+               $$.linha = $1.linha;
+               $$.coluna = $1.coluna;
              }
-             | ARROW_PARAMS ',' LVALUE
+             | ARROW_PARAMS ',' ID
              { 
-               $$.params = $1.params; 
+               $$.params = $1.params;
                $$.params.push_back($3.c[0]); 
              }
              | /* vazio */
              { 
-               $$.params.clear(); 
+               $$.params.clear();
              }
              ;
 
-// F: Fatores. A base de uma expressão. 
+// F: Fatores.
+// A base de uma expressão. 
 F : LVALUE  
   {    
   if (!$1.is_prop) verifica_e_captura($1.c[0]);
@@ -644,7 +740,8 @@ F : LVALUE
               + $1.c
               + GET_PROP($1) 
               + GET_NOME($1.tb) + GET_NOME($1.tk)
-              + GET_PROP($1) + "1" + "-"
+              + GET_PROP($1) + "1" 
+              + "-"
               + "[=]" + "^"
               + "}>";
       } else {
@@ -681,114 +778,7 @@ F : LVALUE
          $$.c = $2.c + GET($2.c) + "1" + "-" + "=";
       }
     }
-  | ID SETA 
-    { 
-      // 1. AÇÃO DE INICIALIZAÇÃO (Agora após a SETA)
-      // Isso elimina os conflitos Reduce/Reduce no ID.
-      
-      capturas_escopo.push_back(vector<string>{}); 
-      ts.push_back( map< string, Simbolo >{} ); 
-      alinhamento_blocos.push_back(1);
-      
-      // Declara o parâmetro no NOVO escopo.
-      // $1 ainda é acessível aqui e contém o ID.
-      declara_var( Var, $1.c[0], $1.linha, $1.coluna );
-    }
-    E 
-    {
-       // 2. GERAÇÃO DE CÓDIGO
-       // Atenção aos índices:
-       // $1: ID
-       // $2: SETA
-       // $3: Ação de inicialização (acima)
-       // $4: E (Corpo da função)
-
-       string lbl_func = gera_label("func_seta");
-       string def_lbl = ":" + lbl_func;
-
-       vector<string> caps = capturas_escopo.back();
-       capturas_escopo.pop_back();
-       
-       vector<string> codigo_captura = vector<string>{"{}"};
-       for(string var : caps) {
-           string var_limpa = trim_str(var);
-           string chave = "'" + var_limpa + "'";
-           codigo_captura = codigo_captura + 
-                            chave + 
-                            (var_limpa + "@") + 
-                            "[<=]";
-       }
-
-       $$.c = vector<string>{"{}"} + 
-              "'&funcao'" + lbl_func + "[<=]";
-              
-       if( !caps.empty() ) {
-         $$.c = $$.c + "'captura'" + codigo_captura + "[<=]";
-       }
-
-       // Setup do argumento único
-       vector<string> param_setup = $1.c + "&" + $1.c + "arguments" + "@" + "0" + "[@]" + "=" + "^";
-
-       funcoes = funcoes + def_lbl + 
-                 param_setup + 
-                 $4.c + // O corpo da expressão agora é $4
-                 "'&retorno'" + "@" + "~";
-
-       ts.pop_back();
-       alinhamento_blocos.pop_back();
-    }
-  | '(' 
-    // REMOVIDO: Ação de inicialização aqui causava o erro!
-    ARROW_PARAMS FPL SETA 
-    {
-       // 1. Inicializa tudo AQUI agora
-       capturas_escopo.push_back(vector<string>{}); 
-       ts.push_back( map< string, Simbolo >{} ); 
-       alinhamento_blocos.push_back(1);
-    }
-    E 
-    {
-       string lbl_func = gera_label("func_seta");
-       string def_lbl = ":" + lbl_func;
-
-       // Processa Capturas
-       // (Nota: Como a captura só começou na ação acima, as variáveis desta função
-       // não foram capturadas, o que está correto. As variáveis externas usadas em 'E'
-       // foram capturadas quando 'E' foi processado).
-       vector<string> caps = capturas_escopo.back();
-       capturas_escopo.pop_back();
-       
-       vector<string> codigo_captura = vector<string>{"{}"};
-       for(string var : caps) {
-           string var_limpa = trim_str(var);
-           string chave = "'" + var_limpa + "'";
-           codigo_captura = codigo_captura + chave + (var_limpa + "@") + "[<=]";
-       }
-
-       vector<string> setup_params;
-       int idx = 0;
-       for(string nome : $2.params) { // Note que agora é $2 (ARROW_PARAMS)
-           declara_var(Var, nome, 0, 0); 
-           setup_params = setup_params + 
-                          nome + "&" + nome + "arguments" + "@" + to_string(idx) + "[@]" + "=" + "^";
-           idx++;
-       }
-
-       $$.c = vector<string>{"{}"} + 
-              "'&funcao'" + lbl_func + "[<=]";
-              
-       if( !caps.empty() ) {
-         $$.c = $$.c + "'captura'" + codigo_captura + "[<=]";
-       }
-
-       funcoes = funcoes + def_lbl + 
-                 setup_params + 
-                 $5.c + // Corpo da expressão agora é $5
-                 "'&retorno'" + "@" + "~";
-
-       ts.pop_back();
-       alinhamento_blocos.pop_back();
-    }
+  // --- CORREÇÃO 1: Regras de Arrow Function REMOVIDAS daqui ---
   | F '(' L_ARGS ')' 
     {
       $$.c = $3.c + to_string($3.n_args) + $1.c + "$";
@@ -807,11 +797,11 @@ F : LVALUE
     }
   | '{' O_CAMPOS '}' 
     { 
-       $$.c = vector<string>{"{}"} + $2.c; 
+       $$.c = vector<string>{"{}"} + $2.c;
     }
   | '[' A_ELEMS ']'  
     {
-       $$.c = vector<string>{"[]"} + $2.c; 
+       $$.c = vector<string>{"[]"} + $2.c;
     }
   | FUNCTION 
     { capturas_escopo.push_back(vector<string>{}); }
@@ -828,20 +818,10 @@ F : LVALUE
        vector<string> caps = capturas_escopo.back();
        capturas_escopo.pop_back();
        
-       // DEBUG: Mostra todas as capturas
-      //  cerr << "DEBUG FUNCTION: " << caps.size() << " capturas" << endl;
-      //  for(size_t i = 0; i < caps.size(); i++) {
-      //      cerr << "  captura[" << i << "]=[" << caps[i] << "] tamanho=" << caps[i].size() << endl;
-      //  }
-       
        vector<string> codigo_captura = vector<string>{"{}"};
        for(string var : caps) {
            string var_limpa = trim_str(var);
-           
-           // CORREÇÃO AQUI: Criar a chave completa antes de somar ao vetor
            string chave = "'" + var_limpa + "'";
-           
-           // Agora somamos a 'chave' inteira como um único elemento do vetor
            codigo_captura = codigo_captura + 
                             chave + 
                             (var_limpa + "@") + 
@@ -850,14 +830,12 @@ F : LVALUE
 
        $$.c = vector<string>{"{}"} + 
               "'&funcao'" + lbl_func + "[<=]";
-
        if( !caps.empty() ) {
          $$.c = $$.c + "'captura'" + codigo_captura + "[<=]";
        }
 
        funcoes = funcoes + def_lbl + $5.c + $9.c + 
                  "undefined" + "@" + "'&retorno'" + "@" + "~";
-
        ts.pop_back();
        alinhamento_blocos.pop_back();
     };
