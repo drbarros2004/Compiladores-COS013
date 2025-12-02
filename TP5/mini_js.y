@@ -20,6 +20,8 @@ struct Atributos {
   int n_args = 0;   // contador de argumentos
   int i = 0;        // contador de parâmetros ?
 
+  vector<string> params; // para funções seta
+
   vector<string> valor_default; // Para argumentos default
 
   // Metadados para LVALUE_PROP
@@ -207,9 +209,9 @@ vector<string> GET_LVALUE_VAL( Atributos lval ) {
 %nonassoc ID '}'       // Precedência baixa (Shift)
 %nonassoc FORCE_BLOCK  // Precedência alta (Reduce da ação)
 
+// --- ADICIONE ISTO AQUI ---
+%nonassoc LOW // Precedência mínima para forçar Shift em conflitos
 
-
-// Definição de precedência e associatividade dos operadores
 %left ':'
 %right '=' MAIS_IGUAL MENOS_IGUAL SETA
 %left OR
@@ -217,10 +219,10 @@ vector<string> GET_LVALUE_VAL( Atributos lval ) {
 %nonassoc '<' '>' IGUAL MA_IG ME_IG DIF
 %left '+' '-'
 %left '*' '/' '%'
-%left '['
+%right MAIS_MAIS MENOS_MENOS  // <--- MOVIDO PARA CÁ (Menor precedência que . e [)
+%left '['                     // <--- ESTES FICAM EMBAIXO (Maior precedência)
 %left '.'
-%left '(' ')' // Precedência para chamada de função
-%right MAIS_MAIS MENOS_MENOS
+%left '(' ')'
 
 %%
 
@@ -525,162 +527,182 @@ CMD_IF : IF '(' E ')' CMD
           }
         ;
 
-// LVALUE: L-value de variável ou de propriedade.
-LVALUE : LVALUE_VAR
-       | LVALUE_PROP
+// LVALUE: Unificado e Recursivo (SEM verifica_e_captura no ID)
+LVALUE : ID 
+       {
+         $$.c = $1.c;
+         $$.is_prop = false;
+         // REMOVIDO: verifica_e_captura($1.c[0]); <--- NÃO FAZEMOS ISSO AQUI MAIS
+       }
+       | LVALUE '[' E ']'
+       {
+         $$.tb = novo_temp();
+         $$.tk = novo_temp();
+         $$.c  = SET_TEMP($$.tb, GET_LVALUE_VAL($1))
+               + SET_TEMP($$.tk, $3.c);
+         $$.is_prop = true;
+       }
+       | LVALUE '.' ID
+       {
+         $$.tb = novo_temp();
+         $$.tk = novo_temp();
+         vector<string> key = vector<string>{ "'" + $3.c[0] + "'" };
+         $$.c  = SET_TEMP($$.tb, GET_LVALUE_VAL($1))
+               + SET_TEMP($$.tk, key);
+         $$.is_prop = true;
+       }
        ;
 
-LVALUE_PROP : F '[' E ']' // segundo a GramProf, deve ser F [ EOBJ ]
-            {
-              // Avalia base e índice uma única vez em temporários
-              $$.tb = novo_temp();
-              $$.tk = novo_temp();
-              $$.c  = SET_TEMP($$.tb, $1.c)
-                    + SET_TEMP($$.tk, $3.c);
-              $$.is_prop = true;
-            }
-            | F '.' ID    
-            {
-              // Chave por nome deve ser string literal
-              $$.tb = novo_temp();
-              $$.tk = novo_temp();
-              vector<string> key = vector<string>{ "'" + $3.c[0] + "'" };
-              $$.c  = SET_TEMP($$.tb, $1.c)
-                    + SET_TEMP($$.tk, key);
-              $$.is_prop = true;
-            }
-            // adicionar: (baseado na GramProf)
-            // LVP [ EOBJ ]
-            // LVP . EOBJ
-            ;
 
-// LVALUE_VAR: ID simples
-LVALUE_VAR : ID 
-             {
-               // Verifica se "x" vem de fora e marca para captura se necessário
-               verifica_e_captura($1.c[0]); 
-             }
-           ;
 
-// ATRIB: Regras de atribuição
-ATRIB : LVALUE_VAR '=' E
+ATRIB : LVALUE '=' E
         {
-          checa_simbolo( $1.c[0], true );
-          $$.c = $1.c + $3.c + "=";
+          if ($1.is_prop) {
+            $$.c = "<{" + $1.c + SET_PROP($1, $3.c) + "}>";
+          } else {
+            checa_simbolo( $1.c[0], true );
+            verifica_e_captura($1.c[0]); // <--- ADICIONADO
+            $$.c = $1.c + $3.c + "=";
+          }
         }
-      | LVALUE_PROP '=' E
+      | LVALUE MAIS_IGUAL E
         {
-          // usa RA temporário para esconder __t*
-          $$.c = "<{" + $1.c + SET_PROP($1, $3.c) + "}>";
-        }
-      | LVALUE_VAR MAIS_IGUAL E
-        {
-          checa_simbolo( $1.c[0], true );
-          $$.c = $1.c + GET($1.c) + $3.c + "+" + "=";
-        }
-      | LVALUE_PROP MAIS_IGUAL E
-        {
-          $$.c = "<{" 
-               + $1.c
-               + GET_NOME($1.tb) + GET_NOME($1.tk)
-               + GET_PROP($1)
-               + $3.c + "+"
-               + "[=]"
-               + "}>";
+          if ($1.is_prop) {
+             // ... (propriedade mantém igual)
+             $$.c = "<{" + $1.c + GET_NOME($1.tb) + GET_NOME($1.tk) + GET_PROP($1) + $3.c + "+" + "[=]" + "}>";
+          } else {
+            checa_simbolo( $1.c[0], true );
+            verifica_e_captura($1.c[0]); // <--- ADICIONADO
+            $$.c = $1.c + GET($1.c) + $3.c + "+" + "=";
+          }
         }
       ;
 
 // E: Expressões. Pode ser uma atribuição ou uma operação binária/fator.
 E : ATRIB
-  | E_BIN
+  | E '<' E     { $$.c = $1.c + $3.c + $2.c; }
+  | E '>' E     { $$.c = $1.c + $3.c + $2.c; }
+  | E IGUAL E   { $$.c = $1.c + $3.c + $2.c; }
+  | E MA_IG E   { $$.c = $1.c + $3.c + $2.c; }
+  | E ME_IG E   { $$.c = $1.c + $3.c + $2.c; }
+  | E DIF E     { $$.c = $1.c + $3.c + $2.c; }
+  | E OR E      { $$.c = $1.c + $3.c + $2.c; }
+  | E AND E     { $$.c = $1.c + $3.c + $2.c; }
+  | E '+' E     { $$.c = $1.c + $3.c + $2.c; }
+  | E '-' E     { $$.c = $1.c + $3.c + $2.c; }
+  | E '*' E     { $$.c = $1.c + $3.c + $2.c; }
+  | E '/' E     { $$.c = $1.c + $3.c + $2.c; }
+  | E '%' E     { $$.c = $1.c + $3.c + $2.c; }
+  | F %prec LOW
   ;
 
-// E_BIN: Regras para todas as operações binárias.
-E_BIN : E_BIN '<' E_BIN     { $$.c = $1.c + $3.c + $2.c; }
-      | E_BIN '>' E_BIN     { $$.c = $1.c + $3.c + $2.c; }
-      | E_BIN IGUAL E_BIN   { $$.c = $1.c + $3.c + $2.c; }
-      | E_BIN MA_IG E_BIN   { $$.c = $1.c + $3.c + $2.c; }
-      | E_BIN ME_IG E_BIN   { $$.c = $1.c + $3.c + $2.c; }
-      | E_BIN DIF E_BIN     { $$.c = $1.c + $3.c + $2.c; }
-      | E_BIN OR E_BIN      { $$.c = $1.c + $3.c + $2.c; }
-      | E_BIN AND E_BIN     { $$.c = $1.c + $3.c + $2.c; }
-      | E_BIN '+' E_BIN     { $$.c = $1.c + $3.c + $2.c; }
-      | E_BIN '-' E_BIN     { $$.c = $1.c + $3.c + $2.c; }
-      | E_BIN '*' E_BIN     { $$.c = $1.c + $3.c + $2.c; }
-      | E_BIN '/' E_BIN     { $$.c = $1.c + $3.c + $2.c; }
-      | E_BIN '%' E_BIN     { $$.c = $1.c + $3.c + $2.c; }
-      | LVALUE_VAR MAIS_MAIS // ver se vale a pena botar em atrib toda essa tropa
-        {
-          checa_simbolo($1.c[0], true);
-          $$.c = GET($1.c) + $1.c + GET($1.c) + "1" + "+" + "=" + "^";
-        }
-      | LVALUE_VAR MENOS_MENOS
-        {
-          checa_simbolo($1.c[0], true);
-          $$.c = GET($1.c) + $1.c + GET($1.c) + "1" + "-" + "=" + "^";
-        }
-      | MAIS_MAIS LVALUE_VAR
-        {
-          checa_simbolo($2.c[0], true);
-          $$.c = $2.c + GET($2.c) + "1" + "+" + "=";
-        }
-      | MENOS_MENOS LVALUE_VAR
-        {
-          checa_simbolo($2.c[0], true);
-          $$.c = $2.c + GET($2.c) + "1" + "-" + "=";
-        }
-      | LVALUE_PROP MAIS_MAIS
-        {
-          // pós-incremento com RA temporário
-          $$.c = "<{"
-               + $1.c
-               + GET_PROP($1)
-               + GET_NOME($1.tb) + GET_NOME($1.tk)
-               + GET_PROP($1) + "1" + "+" + "[=]" + "^"
-               + "}>";
-        }
-      | LVALUE_PROP MENOS_MENOS
-        {
-          // pós-decremento com RA temporário
-          $$.c = "<{"
-               + $1.c
-               + GET_PROP($1)
-               + GET_NOME($1.tb) + GET_NOME($1.tk)
-               + GET_PROP($1) + "1" + "-" + "[=]" + "^"
-               + "}>";
-        }
-      | MAIS_MAIS LVALUE_PROP
-        {
-          // pré-incremento
-          $$.c = "<{"
-               + $2.c
-               + GET_NOME($2.tb) + GET_NOME($2.tk)
-               + GET_PROP($2) + "1" + "+" + "[=]"
-               + "}>";
-        }
-      | MENOS_MENOS LVALUE_PROP
-        {
-          // pré-decremento
-          $$.c = "<{"
-               + $2.c
-               + GET_NOME($2.tb) + GET_NOME($2.tk)
-               + GET_PROP($2) + "1" + "-" + "[=]"
-               + "}>";
-        }
-      | F
-      ;
+// Coleta apenas os nomes dos parâmetros (Usando LVALUE para evitar conflitos)
+ARROW_PARAMS : LVALUE
+             { 
+               // Como é um parâmetro, pegamos apenas o nome.
+               // Não precisamos verificar se é propriedade, pois a sintaxe (x.y) => falharia depois.
+               $$.params.push_back($1.c[0]); 
+               $$.linha = $1.linha; $$.coluna = $1.coluna;
+             }
+             | ARROW_PARAMS ',' LVALUE
+             { 
+               $$.params = $1.params; 
+               $$.params.push_back($3.c[0]); 
+             }
+             | /* vazio */
+             { 
+               $$.params.clear(); 
+             }
+             ;
 
 // F: Fatores. A base de uma expressão. 
-F : LVALUE      { $$.c = GET_LVALUE_VAL($1); }
+F : LVALUE  
+  {    
+  if (!$1.is_prop) verifica_e_captura($1.c[0]);
+  $$.c = GET_LVALUE_VAL($1); 
+  }
+  | LVALUE MAIS_MAIS // Pós-incremento (x++)
+    {
+      if ($1.is_prop) {
+         $$.c = "<{"
+              + $1.c
+              + GET_PROP($1) // Valor original (retorno)
+              + GET_NOME($1.tb) + GET_NOME($1.tk) // Prepara pilha p/ set
+              + GET_PROP($1) + "1" + "+" // Valor + 1
+              + "[=]" + "^" // Atribui e descarta o resultado da atribuição
+              + "}>";
+      } else {
+         checa_simbolo($1.c[0], true);
+         verifica_e_captura($1.c[0]);
+         $$.c = GET($1.c) + $1.c + GET($1.c) + "1" + "+" + "=" + "^";
+      }
+    }
+  | LVALUE MENOS_MENOS // Pós-decremento (x--)
+    {
+      if ($1.is_prop) {
+         $$.c = "<{"
+              + $1.c
+              + GET_PROP($1) 
+              + GET_NOME($1.tb) + GET_NOME($1.tk)
+              + GET_PROP($1) + "1" + "-"
+              + "[=]" + "^"
+              + "}>";
+      } else {
+         checa_simbolo($1.c[0], true);
+         verifica_e_captura($1.c[0]);
+         $$.c = GET($1.c) + $1.c + GET($1.c) + "1" + "-" + "=" + "^";
+      }
+    }
+  | MAIS_MAIS LVALUE // Pré-incremento (++x)
+    {
+      if ($2.is_prop) {
+         $$.c = "<{"
+              + $2.c
+              + GET_NOME($2.tb) + GET_NOME($2.tk)
+              + GET_PROP($2) + "1" + "+" + "[=]"
+              + "}>";
+      } else {
+         checa_simbolo($2.c[0], true);
+         verifica_e_captura($1.c[0]);
+         $$.c = $2.c + GET($2.c) + "1" + "+" + "=";
+      }
+    }
+  | MENOS_MENOS LVALUE // Pré-decremento (--x)
+    {
+      if ($2.is_prop) {
+         $$.c = "<{"
+              + $2.c
+              + GET_NOME($2.tb) + GET_NOME($2.tk)
+              + GET_PROP($2) + "1" + "-" + "[=]"
+              + "}>";
+      } else {
+         checa_simbolo($2.c[0], true);
+         verifica_e_captura($1.c[0]);
+         $$.c = $2.c + GET($2.c) + "1" + "-" + "=";
+      }
+    }
   | ID SETA 
     { 
+      // 1. AÇÃO DE INICIALIZAÇÃO (Agora após a SETA)
+      // Isso elimina os conflitos Reduce/Reduce no ID.
+      
       capturas_escopo.push_back(vector<string>{}); 
       ts.push_back( map< string, Simbolo >{} ); 
-      declara_var( Var, $1.c[0], $1.linha, $1.coluna );
       alinhamento_blocos.push_back(1);
+      
+      // Declara o parâmetro no NOVO escopo.
+      // $1 ainda é acessível aqui e contém o ID.
+      declara_var( Var, $1.c[0], $1.linha, $1.coluna );
     }
     E 
     {
+       // 2. GERAÇÃO DE CÓDIGO
+       // Atenção aos índices:
+       // $1: ID
+       // $2: SETA
+       // $3: Ação de inicialização (acima)
+       // $4: E (Corpo da função)
+
        string lbl_func = gera_label("func_seta");
        string def_lbl = ":" + lbl_func;
 
@@ -704,11 +726,64 @@ F : LVALUE      { $$.c = GET_LVALUE_VAL($1); }
          $$.c = $$.c + "'captura'" + codigo_captura + "[<=]";
        }
 
+       // Setup do argumento único
        vector<string> param_setup = $1.c + "&" + $1.c + "arguments" + "@" + "0" + "[@]" + "=" + "^";
 
        funcoes = funcoes + def_lbl + 
                  param_setup + 
-                 $4.c + 
+                 $4.c + // O corpo da expressão agora é $4
+                 "'&retorno'" + "@" + "~";
+
+       ts.pop_back();
+       alinhamento_blocos.pop_back();
+    }
+  | '(' 
+    // REMOVIDO: Ação de inicialização aqui causava o erro!
+    ARROW_PARAMS FPL SETA 
+    {
+       // 1. Inicializa tudo AQUI agora
+       capturas_escopo.push_back(vector<string>{}); 
+       ts.push_back( map< string, Simbolo >{} ); 
+       alinhamento_blocos.push_back(1);
+    }
+    E 
+    {
+       string lbl_func = gera_label("func_seta");
+       string def_lbl = ":" + lbl_func;
+
+       // Processa Capturas
+       // (Nota: Como a captura só começou na ação acima, as variáveis desta função
+       // não foram capturadas, o que está correto. As variáveis externas usadas em 'E'
+       // foram capturadas quando 'E' foi processado).
+       vector<string> caps = capturas_escopo.back();
+       capturas_escopo.pop_back();
+       
+       vector<string> codigo_captura = vector<string>{"{}"};
+       for(string var : caps) {
+           string var_limpa = trim_str(var);
+           string chave = "'" + var_limpa + "'";
+           codigo_captura = codigo_captura + chave + (var_limpa + "@") + "[<=]";
+       }
+
+       vector<string> setup_params;
+       int idx = 0;
+       for(string nome : $2.params) { // Note que agora é $2 (ARROW_PARAMS)
+           declara_var(Var, nome, 0, 0); 
+           setup_params = setup_params + 
+                          nome + "&" + nome + "arguments" + "@" + to_string(idx) + "[@]" + "=" + "^";
+           idx++;
+       }
+
+       $$.c = vector<string>{"{}"} + 
+              "'&funcao'" + lbl_func + "[<=]";
+              
+       if( !caps.empty() ) {
+         $$.c = $$.c + "'captura'" + codigo_captura + "[<=]";
+       }
+
+       funcoes = funcoes + def_lbl + 
+                 setup_params + 
+                 $5.c + // Corpo da expressão agora é $5
                  "'&retorno'" + "@" + "~";
 
        ts.pop_back();
@@ -745,7 +820,7 @@ F : LVALUE      { $$.c = GET_LVALUE_VAL($1); }
     LISTA_PARAMS 
     ')' 
     { alinhamento_blocos.push_back(1); }
-    '{' CMDs '}'
+    '{' OPT_CMDs '}'
     {
        string lbl_func = gera_label("func_anon");
        string def_lbl = ":" + lbl_func;
