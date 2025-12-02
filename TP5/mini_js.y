@@ -110,9 +110,12 @@ void verifica_e_captura(string nome) {
     
     // cerr << "DEBUG após trim: nome=[" << nome << "] tamanho=" << nome.size() << endl;
     
+    // Se a variável está no escopo atual, não precisa capturar
     if (ts.back().count(nome) > 0) return;
 
-    for (int i = ts.size() - 2; i >= 0; i--) {
+    // Procura nos escopos intermediários (NÃO inclui o global - índice 0)
+    // O global é sempre acessível, não precisa capturar
+    for (int i = ts.size() - 2; i >= 1; i--) {  // Note: >= 1, não >= 0
         if (ts[i].count(nome) > 0) {
             if (capturas_escopo.empty()) return;
 
@@ -608,7 +611,7 @@ E : ATRIB
   // --- INÍCIO DA CORREÇÃO 1: Regras movidas de F para E ---
   | ID SETA 
     { 
-      // 1. AÇÃO DE INICIALIZAÇÃO
+      // AÇÃO DE INICIALIZAÇÃO (comum para ambos os tipos de corpo)
       capturas_escopo.push_back(vector<string>{}); 
       ts.push_back( map< string, Simbolo >{} ); 
       alinhamento_blocos.push_back(1);
@@ -616,9 +619,9 @@ E : ATRIB
       // Declara o parâmetro no NOVO escopo.
       declara_var( Var, $1.c[0], $1.linha, $1.coluna );
     }
-    E 
+    ARROW_BODY 
     {
-       // 2. GERAÇÃO DE CÓDIGO
+       // GERAÇÃO DE CÓDIGO
        string lbl_func = gera_label("func_seta");
        string def_lbl = ":" + lbl_func;
 
@@ -643,22 +646,25 @@ E : ATRIB
 
        // Setup do argumento único
        vector<string> param_setup = $1.c + "&" + $1.c + "arguments" + "@" + "0" + "[@]" + "=" + "^";
+       
+       // Se é bloco (não é expressão simples), precisa de undefined no final
+       // Se é expressão, o valor fica na pilha e retorna
+       // A distinção está no $4.c - o ARROW_BODY produz código diferente
        funcoes = funcoes + def_lbl + 
                  param_setup + 
-                 $4.c + // O corpo da expressão agora é $4
-                 "'&retorno'" + "@" + "~";
+                 $4.c;
        ts.pop_back();
        alinhamento_blocos.pop_back();
     }
   | '(' 
     ARROW_PARAMS FPL SETA 
     {
-       // 1. Inicializa tudo AQUI agora
+       // Inicializa tudo AQUI agora
        capturas_escopo.push_back(vector<string>{}); 
        ts.push_back( map< string, Simbolo >{} ); 
        alinhamento_blocos.push_back(1);
     }
-    E 
+    ARROW_BODY 
     {
        string lbl_func = gera_label("func_seta");
        string def_lbl = ":" + lbl_func;
@@ -675,7 +681,7 @@ E : ATRIB
 
        vector<string> setup_params;
        int idx = 0;
-       for(string nome : $2.params) { // Note que agora é $2 (ARROW_PARAMS)
+       for(string nome : $2.params) {
            declara_var(Var, nome, 0, 0);
            setup_params = setup_params + 
                           nome + "&" + nome + "arguments" + "@" + to_string(idx) + "[@]" + "=" + "^";
@@ -690,8 +696,7 @@ E : ATRIB
 
        funcoes = funcoes + def_lbl + 
                  setup_params + 
-                 $6.c + // Corpo da expressão é $6 (mid-rule action é $5)
-                 "'&retorno'" + "@" + "~";
+                 $6.c; // ARROW_BODY é $6 (mid-rule action é $5)
        ts.pop_back();
        alinhamento_blocos.pop_back();
     }
@@ -699,6 +704,19 @@ E : ATRIB
 
   | F %prec LOW
   ;
+
+// ARROW_BODY: Corpo de uma arrow function (expressão ou bloco)
+ARROW_BODY : E 
+             { 
+               // Expressão: retorna o valor
+               $$.c = $1.c + "'&retorno'" + "@" + "~"; 
+             }
+           | '{' OPT_CMDs '}' 
+             { 
+               // Bloco: executa comandos e retorna undefined se não houver return explícito
+               $$.c = $2.c + "undefined" + "@" + "'&retorno'" + "@" + "~"; 
+             }
+           ;
 
 // Coleta apenas os nomes dos parâmetros
 // CORREÇÃO 2: Alterado de LVALUE para ID para evitar conflitos com acesso a arrays/propriedades.
