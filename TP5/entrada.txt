@@ -1,3 +1,15 @@
-let x = 10;
-let f = function() { return x * 2; };
-let c = f();
+function log( msg ) {
+  msg asm{println # undefined};
+}
+
+function to_string( n ) {
+  n asm{to_string # '&retorno' @ ~};
+};
+
+let k = 12;
+let f = x => { log( "chamou " + to_string( k ) ); return k=[x]; };
+let c = [ 1, { a: [ 9, 2 ] } ] ;
+let d;
+{
+  d = (12 % 2 == 0 ? c : f)[ (12 % 3 == 1 ? c : f)(1)[--c[1].a[1]-1]++ ].a[f(0)[0]]--;
+}
