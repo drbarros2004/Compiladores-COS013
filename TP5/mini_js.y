@@ -204,6 +204,11 @@ vector<string> GET_LVALUE_VAL( Atributos lval ) {
 %token TRUE FALSE  // VALORES BOLEANOS
 %token SETA FPL 
 
+%nonassoc ID '}'       // Precedência baixa (Shift)
+%nonassoc FORCE_BLOCK  // Precedência alta (Reduce da ação)
+
+
+
 // Definição de precedência e associatividade dos operadores
 %left ':'
 %right '=' MAIS_IGUAL MENOS_IGUAL SETA
@@ -232,6 +237,14 @@ CMDs : CMDs CMD  { $$.c = $1.c + $2.c; }
      | CMD       { $$.c = $1.c; }      // Isso faz com que não possa ter bloco totalmente vazio; resolve sr
      ;
 
+// ... CMDs : CMDs CMD | CMD ; (Mantenha o CMDs original)
+
+OPT_CMDs : CMDs { $$.c = $1.c; }
+         |      { $$.clear(); }
+         ;
+
+INICIA_BLOCO : { if (!alinhamento_blocos.empty()) alinhamento_blocos.back()++; } %prec FORCE_BLOCK ;
+
 // Regra que define um comando
 CMD : DECL ';'
     | CMD_IF
@@ -239,18 +252,9 @@ CMD : DECL ';'
     | CMD_WHILE
     | E ';'
       { $$.c = $1.c + "^"; }
-    | '{' 
-      { 
-        // Ação para incrementar alinhamento_blocos
-        if (!alinhamento_blocos.empty()) {
-          alinhamento_blocos.back()++;
-        }
-      }
-      EMPILHA_TS CMDs '}'
+    | '{' INICIA_BLOCO EMPILHA_TS OPT_CMDs '}'
       { 
         ts.pop_back(); 
-        
-        // Ação para decrementar alinhamento_blocos
         if (!alinhamento_blocos.empty()) {
           alinhamento_blocos.back()--;
         }
@@ -263,10 +267,10 @@ CMD : DECL ';'
       { 
         $$.c = $1.c + $2.c + "^"; 
       }
-    | BLVAZIO 
+    /* | BLVAZIO 
       { 
         $$.clear(); // Bloco vazio não gera código nenhum!
-      }
+      } */
     ;
 
 EMPILHA_TS : { ts.push_back( map< string, Simbolo >{} ); } 
@@ -278,7 +282,7 @@ EMPILHA_ALINHAMENTO : { alinhamento_blocos.push_back(1); } // Empilha 1 (o RA da
 CMD_FUNC : FUNCTION ID { declara_var( Var, $2.c[0], $2.linha, $2.coluna ); } 
            '(' EMPILHA_TS LISTA_PARAMS ')' 
            EMPILHA_ALINHAMENTO  
-           '{' CMDs '}'
+           '{' OPT_CMDs '}'
            { 
              string lbl_endereco_funcao = gera_label( "func_" + $2.c[0] );
              string definicao_lbl_endereco_funcao = ":" + lbl_endereco_funcao;
