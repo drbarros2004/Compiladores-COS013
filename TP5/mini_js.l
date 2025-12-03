@@ -86,7 +86,6 @@ STRING      (\"([^\n\r\"\\]*|\\.|\"\")*\")|(\'([^\n\r\'\\]*|\\.|\'\')*\')
 "else"     { return token( ELSE ); }
 "true"     { return token( TRUE ); }   
 "false"    { return token( FALSE ); } 
-    /* "print"    { return token( PRINT ); } */
 "for"      { return token( FOR ); }
 "while"    { return token( WHILE ); }
 
