@@ -322,7 +322,7 @@ E_BIN : E_BIN '<' E_BIN     { $$.c = $1.c + $3.c + $2.c; }
       | F
       ;
 
-// F: Fatores. A base de uma expressão.
+// F: Fatores. A base de uma expressão. 
 F : LVALUE      { $$.c = GET_LVALUE_VAL($1); }
   | '{' '}'     { $$.c = vector<string>{"{}"}; }
   | '[' ']'     { $$.c = vector<string>{"[]"}; }
@@ -336,6 +336,7 @@ F : LVALUE      { $$.c = GET_LVALUE_VAL($1); }
     }
   | '(' E ')'   { $$.c = $2.c; }
   | '-' F       { $$.c = vector<string>{"0"} + $2.c + "-"; }
+  | '+' F       { $$.c = vector<string>{"0"} + $2.c + "-"; }
   ;
   
 %%
