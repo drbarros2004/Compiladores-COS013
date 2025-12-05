@@ -70,6 +70,7 @@ STRING      (\"([^\n\r\"\\]*|\\.|\"\")*\")|(\'([^\n\r\'\\]*|\\.|\'\')*\')
 "=="	   { return token( IGUAL ); }
 
 "+="       { return token( MAIS_IGUAL ); }
+"-="       { return token( MENOS_IGUAL ); }
 "++"       { return token( MAIS_MAIS ); }
 "--"       { return token( MENOS_MENOS ); } 
 

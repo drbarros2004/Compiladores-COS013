@@ -1,20 +1,14 @@
-function f( x = 9, y = 8.1 ) {
-  log( 'Parametros: ' ); log( x ); log( ' ' ); log( y, true ); 
-  return x + y;
+let x = 0;
+
+function f( a, b ) {
+  let y = a++ * --b;
+  x += ++a*10 + b---a++;
+
+  return y;
 }
 
-function log( msg = 'Default!', pular_linha = false ) {
-  if( pular_linha )
-    msg asm{println # undefined};
-  else
-    msg asm{print # undefined};
-}
+let y = [], i = 2;
+y[2] = 2;
+y[3] = 4;
+let c = f( 7, y[++y[i++]]-- );
 
-log();
-log( '-', true );
-log( f(), true );
-log( 'F = ' + f(), true );
-let x = f(),
-    a = f( 1 ),
-    b = f( false, 8, ),
-    c = f( 1, 2 );
